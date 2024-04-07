@@ -1,9 +1,11 @@
 import autogen
 import os
-from tools import search, reply, wait, store
+from dotenv import load_dotenv
+from tools import search, reply, wait, store, read
+load_dotenv()
 
 CODE_CONFIG = {"use_docker": False}
-LLM_CONFIG = {"config_list": [{"model": "gpt-4", "api_key": os.environ.get("OPEN_AI_KEY")}]}
+LLM_CONFIG = {"config_list": [{"model": "gpt-4", "api_key": os.getenv("OPEN_AI_KEY")}], 'cache_seed': None,}
 
 product = """my product 'Yellowstone Expedition Guide' by TravelBrains,
                                   a book that is a collection of all the best locations in yellowstone to visit and hike
@@ -33,36 +35,31 @@ search_guy = autogen.AssistantAgent("filter_agent",
 draft_guy = autogen.AssistantAgent("draft_agent",
                                    llm_config=LLM_CONFIG,
                                    system_message=f"""You are an experienced marketer and redditor, your job is too draft"
-                                      a reply to the posts provided, the post should be very human.
+                                      a reply to the posts provided, the post should be very human and contain
+                                      specific information from the original post.
                                       advertise {product}. The post should advertise my product effectively,
                                       Your job is simply to market the book I am selling.
                                       Limit the length of the drafted reply to 250 words and be sure to include
                                       a direct link using {link}.
-                                      When you have drafted the replies return them in this format,
-                                      a list with each drafted reply as a dictionary element in the list, 
-                                      reply: reply, post_id: post id""",
-                                   is_termination_msg=lambda x: x.get("content", "") and x.get("content",
-                                                                                               "").rstrip().endswith(
-                                       "TERMINATE"),
-                                   )
-reply_guy = autogen.AssistantAgent("reply_agent",
-                                   llm_config=LLM_CONFIG,
-                                   system_message=""" Given a reply and post id, make a tool call using redditreply
-                                      to post the reply to the corrosponding post id. In between each reply make a tool
-                                      call too wait to limit api request rate""",
+                                      """,
                                    is_termination_msg=lambda x: x.get("content", "") and x.get("content",
                                                                                                "").rstrip().endswith(
                                        "TERMINATE"),
                                    )
 
-reply_guy.register_for_llm(name="redditreply", description="reply to a post with a drafted reply")(reply)
-reply_guy.register_for_llm(name="wait", description="wait a specified amount of minutes to limit api call rate")(
+
+draft_guy.register_for_llm(name="redditreply", description="reply to a post with a drafted reply")(reply)
+draft_guy.register_for_llm(name="wait", description="wait a specified amount of minutes to limit api call rate")(
     wait)
+draft_guy.register_for_llm(name="read", description="returns one post from json file and removes that post from file")(read)
+
 search_guy.register_for_llm(name="redditsearch",
                             description="a function that returns a list of reddit posts given a keyword to search for")(
     search)
 search_guy.register_for_llm(name="store",
-                            description="input data to store in json file returns all currently stored posts")(store)
+                            description="stores inputed post data in json file and returns the number of currently stored posts")(store)
+
+user_proxy.register_for_execution(name="read")(read)
 user_proxy.register_for_execution(name="store")(store)
 user_proxy.register_for_execution(name="redditsearch")(search)
 user_proxy.register_for_execution(name="wait")(wait)
@@ -80,25 +77,21 @@ chat = user_proxy.initiate_chats(
                                 
                                 If there are not 5 posts stored continue to search reddit
                                 
-                                Otherwise send the exact Response from calling tool store back to user proxy including
-                                the full title, full body of the post, and post id
-                                  and include TERMINATE at end of message
-                               """,
-            "summary_method": "last_msg"
+                                
+                                """,
+                               
+            "summary_method": "last_msg",
+            "max_turns": 10
 
         },
         {
             "recipient": draft_guy,
-            "message": """Use the provided context which contains reddit posts and draft replies to them""",
-            "max_turns": 1,
+            "message": """Draft and post replies to each post in the posts.json file, each time you draft a reply to a post
+              it will be removed from the file. continue to draft and post replies until there are no more posts left in the file.
+              when you are finished show the replies and their link then TERMINATE""",
             "summary_method": "last_msg"
         },
-        {
-            "recipient": reply_guy,
-            "message": 'Use the provided context to alternate from posting a reddit reply to the post id in context using'
-                       'redditreply and sleep to limit api call rate using wait. post all the drafted replies then return a link'
-                       'to each and TERMINATE'
-        }
+      
     ]
 )
-print(chat.summary)
+os.remove("./posts.json")

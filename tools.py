@@ -1,11 +1,13 @@
 import os
+from dotenv import load_dotenv
 import praw
 import time
 import json
+load_dotenv()
 
-ua = f"Yellowstone Expedition Guide (by /u/{os.environ.get("R_UN")}"
-reddit = praw.Reddit(client_id=os.environ.get("R_CI"), client_secret=os.environ.get("R_SECRET"),
-                     user_agent=ua, username=os.environ.get("R_UN"), password=os.environ.get("R_PW"))
+ua = f"Yellowstone Expedition Guide (by /u/{os.getenv("R_UN")}"
+reddit = praw.Reddit(client_id=os.getenv("R_CI"), client_secret=os.getenv("R_SECRET"),
+                     user_agent=ua, username=os.getenv("R_UN"), password=os.getenv("R_PW"))
 
 
 def store(data: list) -> list:
@@ -27,11 +29,19 @@ def store(data: list) -> list:
             del curr_posts[item]
         with open("./posts.json", "w") as file:
             json.dump(curr_posts, file)
-    return curr_posts
+    return len(curr_posts)
+
+def read() -> dict:
+    with open("./posts.json", "r") as file:
+        all_posts = json.loads(file.read())
+    one_post = all_posts.pop()
+    with open("./posts.json", "w") as file:
+        json.dump(all_posts, file)
+    return one_post  
 
 
 def search(keyword: str) -> json:
-    results = reddit.subreddit("all").search(keyword, limit=5)
+    results = reddit.subreddit("all").search(keyword, limit=3, time_filter="day")
     export = []
     for post in results:
         dict = {}
